@@ -7,7 +7,6 @@ load("nodedefs.js");
 require("sbbsdefs.js", "K_NONE");
 require("mouse_getkey.js", "mouse_getkey");
 
-
 const IRC_SERVER = "glitchtech.top";
 const IRC_PORT = 6667;
 const NICK = "GN";
@@ -15,6 +14,7 @@ const USERNAME = "GNIRCBOT";
 const REALNAME = "GlitchNet IRC Bridge Bot";
 const CHANNEL_NUM = 2;
 const IRC_CHANNEL = "#main";
+const SPOOF_NODE = 13;
 
 
 function IRCBridge(nick, username, realname) {
@@ -23,7 +23,7 @@ function IRCBridge(nick, username, realname) {
     this.realname = realname;
     this.socket = new Socket(SOCK_STREAM);
     this.connected = false;
-    this.processedMessages = [];
+    this.originalNodeSettings = null;
 }
 
 // Connect to IRC server
@@ -78,39 +78,71 @@ IRCBridge.prototype.receiveLoop = function() {
             break; // Exit the loop
         }
 
+        this.checkBBSMessages();
+        
         var line = this.socket.recvline(512, 300);
 
-        if (line == null) {
-            // No IRC message received, check for BBS messages to relay
-            this.checkBBSMessages();
-            continue;
-        }
+        // Only process IRC messages if we received data
+        if (line != null) {
+            //alert("<< " + line);
 
-        alert("<< " + line);
-
-        // Respond to server PING to stay connected
-        if (line.indexOf("PING") === 0) {
-            var pong = line.replace("PING", "PONG");
-            this.send(pong + "\r\n");
-            alert(">> " + pong);
-        }
-        
-        // Parse PRIVMSG messages from IRC and relay to BBS
-        if (line.indexOf("PRIVMSG") !== -1) {
-            var privmsgMatch = line.match(/^:([^!]+)![^\s]+ PRIVMSG ([^\s]+) :(.+)$/);
-            if (privmsgMatch) {
-                var sender = privmsgMatch[1];
-                var channel = privmsgMatch[2];
-                var message = privmsgMatch[3];
-                
-                // Only relay messages from our target IRC channel
-                if (channel === IRC_CHANNEL) {
-                    var relayMessage = "[IRC-" + sender + "] " + message;
-                    this.sendBBSMessage(CHANNEL_NUM, relayMessage);
-                    alert("Relayed IRC message to BBS: " + relayMessage);
+            // Respond to server PING to stay connected
+            if (line.indexOf("PING") === 0) {
+                var pong = line.replace("PING", "PONG");
+                this.send(pong + "\r\n");
+                alert(">> " + pong);
+            }
+            
+            // Parse PRIVMSG messages from IRC and relay to BBS
+            if (line.indexOf("PRIVMSG") !== -1) {
+                var privmsgMatch = line.match(/^:([^!]+)![^\s]+ PRIVMSG ([^\s]+) :(.+)$/);
+                if (privmsgMatch) {
+                    var sender = privmsgMatch[1];
+                    var channel = privmsgMatch[2];
+                    var message = privmsgMatch[3];
+                    
+                    // Only relay messages from our target IRC channel
+                    if (channel === IRC_CHANNEL) {
+                        var relayMessage = "[IRC-" + sender + "] " + message;
+                        this.sendBBSMessage(CHANNEL_NUM, relayMessage);
+                        alert("Relayed IRC message to BBS: " + relayMessage);
+                    }
                 }
             }
         }
+    }
+};
+
+// Setup node spoofing to receive messages on node 13
+IRCBridge.prototype.setupNodeSpoof = function() {
+    try {
+        alert("Setting up node " + SPOOF_NODE + " to receive messages from channel " + CHANNEL_NUM);
+        
+        // Store original node settings for restoration later
+        var originalNode = system.node_list[SPOOF_NODE - 1];
+        this.originalNodeSettings = {
+            status: originalNode.status,
+            action: originalNode.action,
+            aux: originalNode.aux,
+            useron: originalNode.useron,
+            connection: originalNode.connection,
+            misc: originalNode.misc
+        };
+        
+        // Configure node 13 to appear active in the target channel
+        system.node_list[SPOOF_NODE - 1].status = NODE_INUSE;        // Make it appear active
+        system.node_list[SPOOF_NODE - 1].action = NODE_MCHT;         // Set to multinode chat
+        system.node_list[SPOOF_NODE - 1].aux = CHANNEL_NUM;          // Set to target channel
+        system.node_list[SPOOF_NODE - 1].useron = user.number;       // Use current user number
+        system.node_list[SPOOF_NODE - 1].connection = 0xFFFF;        // Telnet connection
+        system.node_list[SPOOF_NODE - 1].misc = 0;                   // No special flags
+        
+        alert("Node " + SPOOF_NODE + " configured to receive messages from channel " + CHANNEL_NUM);
+        return true;
+        
+    } catch (error) {
+        alert("Error setting up node spoof: " + error.toString());
+        return false;
     }
 };
 
@@ -122,6 +154,9 @@ IRCBridge.prototype.disconnect = function() {
         this.connected = false;
         alert("Disconnected from IRC server.");
     }
+    
+    // Restore node spoofing settings
+    this.restoreNodeSpoof();
 };
 
 // Find users in a specific BBS channel
@@ -162,7 +197,7 @@ IRCBridge.prototype.sendBBSMessage = function(channel, message) {
     // Format the message (similar to ChatLineFmt in C code)
     var formattedMessage = format("[%s] (%d): %s\r\n", 
         'IRC',      // Current user's handle
-        '1',    // Current node number  
+        SPOOF_NODE,    // Current node number  
         message          // The message text
     );
     
@@ -184,79 +219,44 @@ IRCBridge.prototype.sendBBSMessage = function(channel, message) {
 
 // Check for and process BBS messages to relay to IRC
 IRCBridge.prototype.checkBBSMessages = function() {
-    var messages = [];
-    var nodeMessage = system.get_node_message('1');
-    //var nodeMessage = system.get_node_message(bbs.node_num);
-
+    var nodeMessage = system.get_node_message(SPOOF_NODE);
     
     if (nodeMessage && nodeMessage.length > 0) {
+        alert("Received BBS message on node " + SPOOF_NODE + ": " + nodeMessage);
         var messageLines = nodeMessage.split('\r\n');
-        
+
+        // Relay all non-empty message lines directly to IRC
         for (var i = 0; i < messageLines.length; i++) {
             var line = messageLines[i];
             if (line.length > 0) {
-                var parsedMsg = this.parseBBSMessage(line);
-                if (parsedMsg && !this.isDuplicateMessage(parsedMsg.id)) {
-                    messages.push(parsedMsg);
-                    this.processedMessages.push(parsedMsg.id);
-                }
+                // Remove Ctrl-A codes for cleaner IRC display
+                var cleanMessage = line.replace(/\x01./g, '');
+                this.sendIRCMessage(IRC_CHANNEL, "[BBS] " + cleanMessage);
+                alert("Relayed BBS message to IRC: " + cleanMessage);
             }
         }
-        
-        // Clear history to prevent memory buildup
-        if (this.processedMessages.length > 100) {
-            this.processedMessages = [];
+    }
+};
+
+// Restore original node settings
+IRCBridge.prototype.restoreNodeSpoof = function() {
+    if (this.originalNodeSettings) {
+        try {
+            var node = system.node_list[SPOOF_NODE - 1];
+            node.status = this.originalNodeSettings.status;
+            node.action = this.originalNodeSettings.action;
+            node.aux = this.originalNodeSettings.aux;
+            node.useron = this.originalNodeSettings.useron;
+            node.connection = this.originalNodeSettings.connection;
+            node.misc = this.originalNodeSettings.misc;
+            
+            alert("Node " + SPOOF_NODE + " settings restored");
+            this.originalNodeSettings = null;
+            
+        } catch (error) {
+            alert("Error restoring node settings: " + error.toString());
         }
     }
-    
-    // Relay messages to IRC
-    for (var m = 0; m < messages.length; m++) {
-        var msg = messages[m];
-        if (msg.sender && msg.content) {
-            var ircMessage = "[BBS-" + msg.sender + "] " + msg.content;
-            this.sendIRCMessage(IRC_CHANNEL, ircMessage);
-            alert("Relayed BBS message to IRC: " + ircMessage);
-        }
-    }
-    
-    return messages;
-};
-
-// Parse BBS message format
-IRCBridge.prototype.parseBBSMessage = function(rawMessage) {
-    // Remove Ctrl-A codes for parsing
-    var cleanMessage = rawMessage.replace(/\x01./g, '');
-    
-    // Try to match chat format: [Username] (Node#): message
-    var match = cleanMessage.match(/^\[([^\]]+)\]\s*\((\d+)\):\s*(.+)$/);
-    if (match) {
-        return {
-            id: this.generateMessageId(rawMessage),
-            sender: match[1],
-            nodeNum: parseInt(match[2]),
-            content: match[3],
-            rawMessage: rawMessage
-        };
-    }
-    
-    return null;
-};
-
-// Generate unique message ID
-IRCBridge.prototype.generateMessageId = function(message) {
-    var timestamp = new Date().getTime();
-    var hash = 0;
-    for (var i = 0; i < message.length; i++) {
-        var char = message.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return timestamp + '_' + Math.abs(hash);
-};
-
-// Check if message was already processed
-IRCBridge.prototype.isDuplicateMessage = function(messageId) {
-    return this.processedMessages.indexOf(messageId) >= 0;
 };
 
 var client = new IRCBridge(NICK, USERNAME, REALNAME);
@@ -278,6 +278,11 @@ if (client.connect()) {
     alert("Sent hello message to " + IRC_CHANNEL + " channel");
 
     client.sendBBSMessage(CHANNEL_NUM, "SyncChat IRC Bridge is now active in channel " + CHANNEL_NUM);
+
+    // Setup node spoofing before starting the receive loop
+    if (!client.setupNodeSpoof()) {
+        alert("Failed to setup node spoofing - messages may not be received properly");
+    }
 
     // Start receiving messages and relaying between IRC and BBS
     client.receiveLoop();
