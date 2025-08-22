@@ -13,3 +13,6 @@ SyncChatIRC is a sister program of [SyncChatIRC (Developed by Tartarus6)](https:
 
 ### Configuration
 Configuration information is included at the top of the JavaScript file. This is designed to be as portable as possible.
+
+### Installation
+To add SyncChatIRC to your Synchronet BBS, simply download the ircbridge.js file and place it in your sbbs/exec directory. You can execute it from sysop commands or you can set it to autorun.
