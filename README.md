@@ -42,7 +42,7 @@ const DEBUG_MODE = false;
 */
 ```
 
-### Installation*
+### Installation
 To add SyncChatIRC to your Synchronet BBS, simply download the ircbridge.js file and place it in your sbbs/exec directory. You can execute it from sysop commands or you can set it to autorun.
 
 To ensure that SyncChatIRC is always started when you restart/start your BBS server, set it to autorun using SCFG or your preferred configuration method. 
