@@ -286,8 +286,15 @@ IRCBridge.prototype.checkBBSMessages = function() {
                     var username = multinodeMatch[1];
                     var content = multinodeMatch[3];
                     
-                    this.sendIRCMessage(IRC_CHANNEL, "<" + username + "> " + content);
-                    if (DEBUG_MODE) alert("Relayed BBS message to IRC: <" + username + "> " + content);
+                    var ircMessage = "";
+                    if (username !== "Node") {
+                        ircMessage = "<" + username + "> " + content;
+                    } else {
+                        ircMessage = content;
+                    }
+                    
+                    this.sendIRCMessage(IRC_CHANNEL, ircMessage);
+                    if (DEBUG_MODE) alert("Relayed BBS message to IRC: " + ircMessage);
                 }
                 // Messages that don't match the format are filtered out
             }
