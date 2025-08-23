@@ -34,7 +34,8 @@ const IRC_CHANNEL = "#main";
 const SPOOF_NODE = 13;
 // This is the node the bridge will use to listen for BBS messages. I recommend locking this node from login privilegs in SCFG
 const DEBUG_MODE = false;
-/* This causes Debug messages to be output to the screen. 
+/* 
+*  This causes Debug messages to be output to the screen. 
 *  When testing or making changes, it is recommended that you disable autorun (more below) and launch the program with sysop privileges.
 *  This way, all of these debug messages will be visible from that window.
 *  The command is `;exec ?ircbridge`
